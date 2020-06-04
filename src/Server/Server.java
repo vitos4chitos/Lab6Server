@@ -1,22 +1,30 @@
 package Server;
 
+import java.io.BufferedReader;
 import java.io.FileWriter;
 import Data.*;
 import communication.*;
+
+import javax.xml.crypto.Data;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.rmi.ServerError;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
 public class Server implements ServerCommands, Runnable {
 
-    private int port = 1340;
+    private int port = 1341;
     private SocketAddress socketAddress = new InetSocketAddress(port);;
     private DatagramChannel channel;
+    private BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
     {
         try {
             channel = DatagramChannel.open();
@@ -37,56 +45,65 @@ public class Server implements ServerCommands, Runnable {
     public void run() {
         System.out.println("Производим выгрузку коллекции...");
         Scanner scanner = new Scanner(System.in);
-        while(!uploadCollection(path)){
+        while (!uploadCollection(path)) {
             System.out.println("Введите путь до файла:");
             path = scanner.nextLine();
         }
-        while (true) {
-            try {
-                System.out.println("Ожидаю запрос от клиента...");
-                socketAddress = channel.receive(output);
-                System.out.println("Пакет принят, начинаю обработку");
-                Packet answer = opener(output);
-                buffer.clear();
-                buffer.put(Serializer.serialize(answer));
-                buffer.flip();
-                channel.send(buffer, socketAddress);
-                System.out.println("Ответ успешно отправлен");
-                output.clear();
-                buffer.clear();
-                buffer.put(new byte[4096]);
-                buffer.clear();
-            }
-            catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-    public static void main(String[] args){
-        System.out.println("Включаем сервер...");
-        Server server = new Server();
-        server.path = args[0];
-        Thread saver = new Thread(){
-            @Override
-            public void run(){
-                Scanner scanner = new Scanner(System.in);
-                String line;
-                while (true){
-                    line = scanner.nextLine();
-                    if(line.equals("exit")){
-                        Server.Exit.exit();
+        Packet answer = null;
+        try {
+            Selector selector = Selector.open();
+            channel.configureBlocking(false);
+            channel.register(selector, SelectionKey.OP_READ);
+            while (true) {
+                    if(in.ready()){
+                        String serverCommand = in.readLine();
+                        if(serverCommand.equals("exit")){
+                            Server.Exit.exit();
+                        }
+                        if(serverCommand.equals("save")){
+                            Server.Save.save();
+                        }
+                        else{
+                            System.out.println("Такой команды нет.");
+                        }
                     }
-                    if(line.equals("save")){
-                        Server.Save.save();
-                    }
-                    else{
-                        System.out.println("Такой команды нет, попробуйте ещё раз");
+                    selector.selectNow();
+                    Set<SelectionKey> selectedKeys = selector.selectedKeys();
+                    Iterator<SelectionKey> iter = selectedKeys.iterator();
+                    while (iter.hasNext()){
+                        SelectionKey key = iter.next();
+                        if(key.isReadable()){
+                            DatagramChannel client = (DatagramChannel) key.channel();
+                            socketAddress = client.receive(output);
+                            System.out.println("Пакет принят, начинаю обработку");
+                            answer = opener(output);
+                            output.clear();
+                            key.interestOps(SelectionKey.OP_WRITE);
+                        }
+                        if(key.isWritable()){
+                            DatagramChannel client = (DatagramChannel) key.channel();
+                            buffer.clear();
+                            buffer.put(Serializer.serialize(answer));
+                            buffer.flip();
+                            client.send(buffer, socketAddress);
+                            System.out.println("Ответ успешно отправлен");
+                            buffer.clear();
+                            buffer.put(new byte[4096]);
+                            buffer.clear();
+                            key.interestOps(SelectionKey.OP_READ);
+                        }
+                        iter.remove();
                     }
                 }
             }
-        };
-        saver.start();
+            catch (IOException e) {
+                e.printStackTrace();
+        }
+    }
+        public static void main(String[] args){
+        System.out.println("Включаем сервер...");
+        Server server = new Server();
+        server.path = args[0];
         server.run();
     }
 

@@ -1,6 +1,8 @@
 package Data;
 
 
+import org.omg.PortableInterceptor.SYSTEM_EXCEPTION;
+
 import java.io.*;
 import java.util.*;
 
@@ -26,7 +28,15 @@ public class DataBase {
     }
     public static void changeFileName(String s){
         file = new File(s);
-        idFile = new File(file.getParent() + "/id.csv");
+        String[] ss = file.getAbsolutePath().split("/");
+        if(ss.length == 1){
+            ss = file.getAbsolutePath().split("\\\\");
+        }
+        String path = "";
+        for(int i = 0; i < ss.length - 1; i++){
+            path += ss[i] + "/";
+        }
+        idFile = new File(path + "id.csv");
         try {
             FileReader fr = new FileReader(idFile);
             BufferedReader reader = new BufferedReader(fr);
